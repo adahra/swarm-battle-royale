@@ -1,0 +1,20 @@
+# Python Ignore File
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+
+# Distribution / packaging
+.Python
+build/
+dist/
+
+# Logs and database files
+*.log
+*.sqlite3
+.DS_Store
