@@ -1,0 +1,47 @@
+"""Configuration constants for P2P Swarm Game."""
+
+import time
+DEFAULT_PORT = 55555
+
+# Gameplay
+WIDTH, HEIGHT = 800, 600
+PLAYER_SPEED = 5
+MAX_FPS = 30
+MAX_ALLOWED_DISTANCE_PER_FRAME = PLAYER_SPEED * 2.5
+MAX_HEALTH = 100
+MAX_STRIKES = 5
+PLAYER_SIZE = 24
+RECV_BUFFER_SIZE = 2048
+CHAT_HISTORY_MAX = 50
+CHAT_INPUT_HEIGHT = 30
+CHAT_HISTORY_HEIGHT = 120
+
+# Projectile
+PROJECTILE_SPEED = 12
+PROJECTILE_SIZE = 6
+PROJECTILE_DAMAGE = 25
+FIRE_COOLDOWN = 0.3
+RESPAWN_TIME = 3.0
+INVULNERABLE_TIME = 1.5
+
+TEAM_COLORS = {
+    "red": (220, 60, 60),
+    "blue": (60, 120, 220),
+    "green": (60, 200, 80),
+    "yellow": (220, 200, 40),
+}
+DEFAULT_TEAM = "red"
+FRIENDLY_FIRE = False
+
+# Network
+PING_INTERVAL = 1.0
+PING_TIMEOUT = 2.0
+RECONNECT_DELAY = 5.0
+PEER_FILE = "peers.json"
+STUN_SERVERS = [
+    ("stun.l.google.com", 19302),
+    ("stun1.l.google.com", 19302),
+    ("stun2.l.google.com", 19302),
+]
+PEER_TIMEOUT = 3.0
+HOST_MIGRATION_TIMEOUT = 5.0
