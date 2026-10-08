@@ -3,7 +3,6 @@
 import time
 from .config import RECONNECT_DELAY
 from .network import create_handshake_message
-from .peer_manager import PeerManager
 
 
 class ReconnectionManager:

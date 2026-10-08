@@ -94,7 +94,8 @@ def test_peer_validate_and_strikes():
     assert pm.peers["peer:2"]["x"] == 10
     pm.validate_and_update("peer:2", _valid_update(500, 500))
     pm.validate_and_update("peer:2", _valid_update(500, 500))
-    assert pm.peers["peer:2"]["strike_count"] == 3  # exceeds max
+    assert "peer:2" not in pm.peers  # kicked after exceeding max_strikes
+    assert "peer:2" not in pm.known_peers
 
 
 def test_peer_timeout_and_host_election():
@@ -270,3 +271,88 @@ def test_process_message_update_chat_shoot_ping():
 
     # message without sender ignored
     netmod.process_message({"type": "chat", "text": "x"}, pm, n, chat, projectiles, "me:1", me)
+
+
+def test_hit_despawns_projectile_everywhere_and_kill_credit():
+    from p2p_game_package.projectile import Projectile
+    pm = PeerManager("me:1")
+    n = netmod.Network.__new__(netmod.Network)
+    n.my_id = "me:1"
+    sent = []
+    n.send = lambda payload, target: sent.append((payload, target))
+    n.broadcast = lambda payload, targets: sent.append((payload, list(targets)))
+    chat = Chat()
+    me = Player(name="Me")
+    me.set_id("me:1")
+    proj = Projectile(10, 10, 1, 0, "red", "shooter:1", proj_id="abc123")
+    projectiles = [proj]
+    # hit broadcast kills local copy even when we are not the victim
+    netmod.process_message({"type": "hit", "sender_id": "shooter:1",
+                            "target_id": "victim:1", "damage": 25, "proj_id": "abc123"},
+                           pm, n, chat, projectiles, "me:1", me)
+    assert proj.alive is False
+    # kill message credits the killer
+    assert me.kills == 0
+    netmod.process_message({"type": "kill", "sender_id": "victim:1", "target_id": "me:1"},
+                           pm, n, chat, [], "me:1", me)
+    assert me.kills == 1 and me.score == 100
+
+
+def test_malformed_packets_do_not_crash():
+    pm = PeerManager("me:1")
+    n = netmod.Network.__new__(netmod.Network)
+    n.my_id = "me:1"
+    n.send = lambda payload, target: None
+    n.handle_pong = lambda m: None
+    chat = Chat()
+    me = Player(name="Me")
+    # missing x/y, bad shoot, empty chat, hit without proj_id
+    netmod.process_message({"type": "update", "sender_id": "p:1", "swarm_list": []},
+                           pm, n, chat, [], "me:1", me)
+    netmod.process_message({"type": "shoot", "sender_id": "p:1"},
+                           pm, n, chat, [], "me:1", me)
+    netmod.process_message({"type": "chat", "sender_id": "p:1", "text": "   "},
+                           pm, n, chat, [], "me:1", me)
+    netmod.process_message({"type": "hit", "sender_id": "p:1", "target_id": "other:1", "damage": 10},
+                           pm, n, chat, [], "me:1", me)
+    assert "p:1" not in pm.peers  # invalid update ignored
+
+
+def test_settings_save_load_and_alpha_clamp(tmp_path):
+    from p2p_game_package.settings import GameSettings, MIN_ALPHA, MAX_ALPHA
+    s = GameSettings()
+    s.show_chat = False
+    for _ in range(30):
+        s.alpha_up()
+    assert s.panel_alpha == MAX_ALPHA
+    for _ in range(30):
+        s.alpha_down()
+    assert s.panel_alpha == MIN_ALPHA
+    f = str(tmp_path / "settings.json")
+    s.panel_alpha = 150
+    s.save(f)
+    s2 = GameSettings.load(f)
+    assert s2.panel_alpha == 150 and s2.show_chat is False
+    assert GameSettings.load(str(tmp_path / "missing.json")).show_chat is True
+
+
+def test_pause_menu_navigation_toggle_and_exit():
+    import pygame
+    pygame.display.init()
+    screen = pygame.display.set_mode((100, 100))
+    from p2p_game_package.menu import PauseMenu
+    from p2p_game_package.settings import GameSettings
+    st = GameSettings()
+    m = PauseMenu(screen, st)
+    # toggle leaderboard off via Enter
+    assert m.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_RETURN, "unicode": ""})) is None
+    assert st.show_leaderboard is False
+    # Esc resumes
+    assert m.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_ESCAPE, "unicode": ""})) == "resume"
+    # navigate to to_menu (index 4) and confirm
+    for _ in range(4):
+        m.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_DOWN, "unicode": ""}))
+    assert m.OPTIONS[m.selected] == "to_menu"
+    assert m.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_RETURN, "unicode": ""})) == "to_menu"
+    m.draw()  # must not crash
+    pygame.display.quit()

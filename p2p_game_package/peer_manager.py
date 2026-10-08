@@ -33,19 +33,28 @@ class PeerManager:
     def validate_and_update(self, sender_id, data):
         if sender_id == self.my_id:
             return
+        try:
+            nx, ny = float(data["x"]), float(data["y"])
+        except (KeyError, TypeError, ValueError):
+            return
 
         is_valid = True
         if sender_id in self.peers:
             old_x = self.peers[sender_id]["x"]
             old_y = self.peers[sender_id]["y"]
-            distance = ((data["x"] - old_x) ** 2 + (data["y"] - old_y) ** 2) ** 0.5
+            distance = ((nx - old_x) ** 2 + (ny - old_y) ** 2) ** 0.5
             if distance > self.max_distance:
                 is_valid = False
 
         if is_valid:
+            prev_strikes = self.peers.get(sender_id, {}).get("strike_count", 0)
+            try:
+                color = tuple(data["color"])
+            except (KeyError, TypeError, ValueError):
+                return
             self.peers[sender_id] = {
-                "x": data["x"], "y": data["y"],
-                "color": tuple(data["color"]),
+                "x": nx, "y": ny,
+                "color": color,
                 "name": data.get("name", sender_id.split(":")[-1]),
                 "team": data.get("team", DEFAULT_TEAM),
                 "health": data.get("health", MAX_HEALTH),
@@ -55,7 +64,7 @@ class PeerManager:
                 "deaths": data.get("deaths", 0),
                 "alive": data.get("alive", True),
                 "last_seen": time.time(),
-                "strike_count": 0,
+                "strike_count": prev_strikes,
                 "latency": data.get("latency", 0)
             }
             self.host_candidates.add(sender_id)
@@ -63,7 +72,7 @@ class PeerManager:
             strikes = self.peers.get(sender_id, {}).get("strike_count", 0) + 1
             self.peers.setdefault(sender_id, {})["strike_count"] = strikes
             if strikes > self.max_strikes:
-                pass  # kick handled by caller
+                self.remove_peer(sender_id)
 
     def update_peer_health(self, sender_id, health, alive):
         if sender_id in self.peers:
@@ -85,11 +94,11 @@ class PeerManager:
         self.known_peers.discard(peer_id)
         self.host_candidates.discard(peer_id)
         if peer_id == self.host_id:
-            self.elect_new_host()
+            self.elect_new_host(force=True)
 
-    def elect_new_host(self):
+    def elect_new_host(self, force=False):
         now = time.time()
-        if now - self.last_host_change < HOST_MIGRATION_TIMEOUT:
+        if not force and now - self.last_host_change < HOST_MIGRATION_TIMEOUT:
             return
         candidates = [self.my_id] + list(self.host_candidates)
         candidates = [c for c in candidates if c in self.known_peers or c == self.my_id]

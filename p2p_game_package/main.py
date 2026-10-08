@@ -23,12 +23,14 @@ def main():
     parser.add_argument("-n", "--name", type=str, default=None, help="Player name")
     parser.add_argument("-t", "--team", type=str, default=DEFAULT_TEAM, choices=list(TEAM_COLORS.keys()), help="Team")
     parser.add_argument("--no-stun", action="store_true", help="Disable STUN public IP discovery")
+    parser.add_argument("--verbose", action="store_true", help="Show verbose console logs")
     args = parser.parse_args()
 
     network = Network(args.port)
     if not args.no_stun:
-        print("[*] Discovering public endpoint via STUN...")
-        network.discover_public_endpoint()
+        if args.verbose:
+            print("[*] Discovering public endpoint via STUN...")
+            network.discover_public_endpoint()
 
     player = Player(name=args.name, team=args.team)
     player.set_id(network.my_id)
@@ -40,7 +42,8 @@ def main():
     projectiles = []
     reconnect = ReconnectionManager(network, peer_manager, player)
 
-    print(f"[*] Game Swarm P2P berjalan di ID: {network.my_id}")
+    if args.verbose:
+        print(f"[*] Game Swarm P2P berjalan di ID: {network.my_id}")
 
     # In-game main menu (replaces terminal prompt)
     menu = MainMenu(renderer.screen, name=player.name, team=player.team)
@@ -63,7 +66,8 @@ def main():
     player.team = result["team"]
     player.color = TEAM_COLORS[player.team]
     pygame.display.set_caption(f"P2P Swarm Game | Port: {args.port} | {player.name} ({player.team})")
-    print(f"[*] Name: {player.name} | Team: {player.team}")
+    if args.verbose:
+        print(f"[*] Name: {player.name} | Team: {player.team}")
 
     # Load saved peers for reconnection
     reconnect.load_state()
@@ -115,7 +119,8 @@ def main():
                         renderer = Renderer(WIDTH, HEIGHT, f"P2P Swarm Game | Port: {args.port} | {player.name} ({player.team})")
                     elif event.key == pygame.K_F5:
                         reconnect.save_state()
-                        print("[💾] Peers saved manually")
+                        if args.verbose:
+                            print("[💾] Peers saved manually")
 
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     proj = player.shoot(mouse_x, mouse_y)
@@ -139,15 +144,14 @@ def main():
             if not proj.alive:
                 projectiles.remove(proj)
                 continue
-            if proj.owner_id == network.my_id:
-                for peer_id, pdata in peer_manager.get_alive_peers().items():
-                    if not FRIENDLY_FIRE and pdata["team"] == player.team:
-                        continue
-                    peer_rect = pygame.Rect(pdata["x"], pdata["y"], PLAYER_SIZE, PLAYER_SIZE)
-                    if proj.get_rect().colliderect(peer_rect):
-                        proj.alive = False
-                        network.send(create_hit_message(network.my_id, peer_id, PROJECTILE_DAMAGE), peer_id)
-                        break
+            for peer_id, pdata in peer_manager.get_alive_peers().items():
+                if not FRIENDLY_FIRE and pdata["team"] == player.team:
+                    continue
+                peer_rect = pygame.Rect(pdata["x"], pdata["y"], PLAYER_SIZE, PLAYER_SIZE)
+                if proj.get_rect().colliderect(peer_rect):
+                    proj.alive = False
+                    network.broadcast(create_hit_message(network.my_id, peer_id, PROJECTILE_DAMAGE, proj.proj_id), peer_manager.get_broadcast_targets())
+                    break
 
         # Host migration
         peer_manager.elect_new_host()

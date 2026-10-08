@@ -144,3 +144,118 @@ class MainMenu:
             warn = self.small_font.render("Format Friend: IP:PORT  (contoh 192.168.1.5:55555)", True, (255, 120, 120))
             self.screen.blit(warn, (WIDTH // 2 - warn.get_width() // 2, HEIGHT - 65))
         pygame.display.flip()
+
+
+class PauseMenu:
+    """In-game pause overlay: resume / panel settings / exit to menu / quit.
+
+    Navigation: Up/Down pilih, Left/Right toggle & ubah alpha,
+    Enter/Z konfirmasi, P/Esc tutup (resume).
+    handle_event returns: None | 'resume' | 'to_menu' | 'quit_app'.
+    """
+
+    OPTIONS = ["leaderboard", "netinfo", "chat", "alpha", "to_menu", "quit_app"]
+
+    LABELS = {
+        "leaderboard": "Leaderboard",
+        "netinfo": "Info Jaringan",
+        "chat": "Kotak Chat",
+        "alpha": "Transparansi",
+        "to_menu": "Exit: ke Menu Awal",
+        "quit_app": "Exit: Keluar Aplikasi",
+    }
+
+    def __init__(self, screen, settings):
+        pygame.font.init()
+        self.screen = screen
+        self.settings = settings
+        self.selected = 0
+        self.title_font = pygame.font.SysFont("consolas", 32, bold=True)
+        self.font = pygame.font.SysFont("consolas", 20)
+        self.small_font = pygame.font.SysFont("consolas", 14)
+
+    def _toggle(self, opt):
+        if opt == "leaderboard":
+            self.settings.show_leaderboard = not self.settings.show_leaderboard
+        elif opt == "netinfo":
+            self.settings.show_netinfo = not self.settings.show_netinfo
+        elif opt == "chat":
+            self.settings.show_chat = not self.settings.show_chat
+
+    def _value_text(self, opt):
+        if opt == "leaderboard":
+            return "ON" if self.settings.show_leaderboard else "OFF"
+        if opt == "netinfo":
+            return "ON" if self.settings.show_netinfo else "OFF"
+        if opt == "chat":
+            return "ON" if self.settings.show_chat else "OFF"
+        if opt == "alpha":
+            return f"< {self.settings.panel_alpha} >"
+        return ""
+
+    def handle_event(self, event):
+        if event.type == pygame.QUIT:
+            return "quit_app"
+        if event.type != pygame.KEYDOWN:
+            return None
+        if event.key in (pygame.K_p, pygame.K_ESCAPE):
+            return "resume"
+        if event.key in (pygame.K_UP, pygame.K_w):
+            self.selected = (self.selected - 1) % len(self.OPTIONS)
+            return None
+        if event.key in (pygame.K_DOWN, pygame.K_s):
+            self.selected = (self.selected + 1) % len(self.OPTIONS)
+            return None
+        opt = self.OPTIONS[self.selected]
+        if event.key in (pygame.K_LEFT, pygame.K_a):
+            if opt == "alpha":
+                self.settings.alpha_down()
+            elif opt in ("leaderboard", "netinfo", "chat"):
+                self._toggle(opt)
+            self.settings.save()
+            return None
+        if event.key in (pygame.K_RIGHT, pygame.K_d):
+            if opt == "alpha":
+                self.settings.alpha_up()
+            elif opt in ("leaderboard", "netinfo", "chat"):
+                self._toggle(opt)
+            self.settings.save()
+            return None
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_z):
+            if opt in ("leaderboard", "netinfo", "chat"):
+                self._toggle(opt)
+                self.settings.save()
+                return None
+            if opt in ("to_menu", "quit_app"):
+                return opt
+            return None
+        return None
+
+    def draw(self):
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
+        box = pygame.Rect(WIDTH // 2 - 220, 90, 440, 380)
+        panel = pygame.Surface((box.w, box.h), pygame.SRCALPHA)
+        panel.fill((18, 18, 28, 225))
+        self.screen.blit(panel, box.topleft)
+        pygame.draw.rect(self.screen, (90, 90, 140), box, 2, border_radius=10)
+        title = self.title_font.render("PAUSE", True, (255, 255, 255))
+        self.screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 110))
+        hint = self.small_font.render("P/Esc: lanjut | Up/Down: pilih | Left/Right: ubah", True, (150, 150, 170))
+        self.screen.blit(hint, (WIDTH // 2 - hint.get_width() // 2, 150))
+        y = 190
+        for i, opt in enumerate(self.OPTIONS):
+            active = i == self.selected
+            if opt in ("to_menu", "quit_app") and i == 4:
+                sep = self.small_font.render("--- EXIT ---", True, (150, 120, 120))
+                self.screen.blit(sep, (WIDTH // 2 - sep.get_width() // 2, y))
+                y += 26
+            color = (255, 255, 100) if active else (200, 200, 200)
+            prefix = "> " if active else "  "
+            val = self._value_text(opt)
+            text = f"{prefix}{self.LABELS[opt]}" + (f": {val}" if val else "")
+            surf = self.font.render(text, True, color)
+            self.screen.blit(surf, (WIDTH // 2 - 190, y))
+            y += 40
+        pygame.display.flip()

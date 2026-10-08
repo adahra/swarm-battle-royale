@@ -2,7 +2,7 @@
 
 import pygame
 import time
-from .config import CHAT_HISTORY_MAX, CHAT_INPUT_HEIGHT, CHAT_HISTORY_HEIGHT, TEAM_COLORS
+from .config import CHAT_HISTORY_MAX, CHAT_INPUT_HEIGHT, CHAT_HISTORY_HEIGHT, TEAM_COLORS, CHAT_MAX_LENGTH
 
 
 class Chat:
@@ -22,6 +22,11 @@ class Chat:
         self.small_font = pygame.font.SysFont("consolas", 14)
 
     def add_message(self, sender_id, text, is_self=False, team=None):
+        if not isinstance(text, str):
+            return
+        text = text.strip()[:CHAT_MAX_LENGTH]
+        if not text:
+            return
         timestamp = time.strftime("%H:%M:%S")
         self.messages.append({
             "sender": sender_id,
@@ -57,12 +62,14 @@ class Chat:
                 self.deactivate_input()
         return None
 
-    def draw(self, screen, width, height, my_id):
+    def draw(self, screen, width, height, my_id, alpha=170):
         if not self.font:
             self.init_fonts()
 
         history_y = height - CHAT_INPUT_HEIGHT - CHAT_HISTORY_HEIGHT
-        pygame.draw.rect(screen, (20, 20, 20, 180), (0, history_y, width, CHAT_HISTORY_HEIGHT))
+        bg = pygame.Surface((width, CHAT_HISTORY_HEIGHT), pygame.SRCALPHA)
+        bg.fill((20, 20, 20, alpha))
+        screen.blit(bg, (0, history_y))
 
         y = history_y + 5
         for msg in reversed(self.messages):

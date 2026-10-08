@@ -3,13 +3,21 @@
 """Projectile module for P2P Swarm Game."""
 
 import time
-from .config import PROJECTILE_SPEED, PROJECTILE_SIZE, PROJECTILE_DAMAGE, WIDTH, HEIGHT
+import uuid
+from .config import PROJECTILE_SIZE, WIDTH, HEIGHT
 
 
 class Projectile:
     """Represents a projectile fired by a player."""
 
-    def __init__(self, x, y, vx, vy, team, owner_id):
+    def __init__(self, x, y, vx, vy, team, owner_id, proj_id=None):
+        self.x = x
+        self.y = y
+        self.vx = vx
+        self.vy = vy
+        self.team = team
+        self.owner_id = owner_id
+        self.proj_id = proj_id or uuid.uuid4().hex[:12]
         self.x = x
         self.y = y
         self.vx = vx
@@ -36,6 +44,7 @@ class Projectile:
 
     def get_state(self):
         return {
+            "proj_id": self.proj_id,
             "x": self.x, "y": self.y,
             "vx": self.vx, "vy": self.vy,
             "team": self.team,
@@ -45,5 +54,6 @@ class Projectile:
     @staticmethod
     def from_state(state):
         p = Projectile(state["x"], state["y"], state["vx"], state["vy"],
-                       state["team"], state["owner_id"])
+                       state["team"], state["owner_id"],
+                       proj_id=state.get("proj_id"))
         return p

@@ -5,10 +5,9 @@ import json
 import struct
 import time
 import os
-import time
 import select
 
-from .config import STUN_SERVERS, PING_INTERVAL, PING_TIMEOUT, RECONNECT_DELAY, PEER_FILE, HOST_MIGRATION_TIMEOUT, RECV_BUFFER_SIZE
+from .config import STUN_SERVERS, PING_INTERVAL, RECV_BUFFER_SIZE
 
 
 class Network:
@@ -23,7 +22,10 @@ class Network:
         self.my_ip = self._get_local_ip()
         self.public_ip = None
         self.public_port = None
-        self.sock.bind((self.my_ip, self.port))
+        try:
+            self.sock.bind((self.my_ip, self.port))
+        except OSError as e:
+            raise OSError(f"Cannot bind {self.my_ip}:{self.port}: {e}. Use -p for a free port.") from e
         self.my_id = f"{self.my_ip}:{self.port}"
         self.pending_pings = {}  # peer_id -> (seq, sent_time)
         self.latencies = {}      # peer_id -> avg_rtt_ms
@@ -52,25 +54,34 @@ class Network:
                 sock.sendto(msg, (stun_host, stun_port))
                 data, _ = sock.recvfrom(1024)
                 sock.close()
-                # Parse XOR-MAPPED-ADDRESS
-                if len(data) >= 20:
-                    attr_type = struct.unpack("!H", data[20:22])[0]
-                    if attr_type == 0x0020:  # XOR-MAPPED-ADDRESS
-                        family = data[24]
+                # Parse attributes via TLV loop (RFC 5389: attrs may follow header in any order)
+                magic = 0x2112A442
+                off = 20
+                while off + 4 <= len(data):
+                    attr_type, attr_len = struct.unpack("!HH", data[off:off + 4])
+                    val = data[off + 4:off + 4 + attr_len]
+                    if attr_type == 0x0020 and len(val) >= 8:  # XOR-MAPPED-ADDRESS
+                        family = val[1]
                         if family == 1:  # IPv4
-                            port = struct.unpack("!H", data[26:28])[0] ^ 0x2112
-                            ip_bytes = bytes([b ^ 0x21 for b in data[28:32]])
+                            port = struct.unpack("!H", val[2:4])[0] ^ 0x2112
+                            ip_bytes = bytes(b ^ ((magic >> (24 - 8 * i)) & 0xFF) for i, b in enumerate(val[4:8]))
                             self.public_ip = ".".join(str(b) for b in ip_bytes)
                             self.public_port = port
                             self.my_id = f"{self.public_ip}:{self.public_port}"
                             return True
+                        break
+                    # attributes padded to 4-byte boundary
+                    off += 4 + ((attr_len + 3) // 4) * 4
             except Exception:
                 pass
         return False
 
     def send(self, payload, target_id):
-        ip, port = target_id.split(":")
-        self.sock.sendto(json.dumps(payload).encode('utf-8'), (ip, int(port)))
+        try:
+            ip, port = target_id.split(":")
+            self.sock.sendto(json.dumps(payload).encode('utf-8'), (ip, int(port)))
+        except (ValueError, OSError):
+            pass
 
     def broadcast(self, payload, peer_ids):
         msg = json.dumps(payload).encode('utf-8')
@@ -84,8 +95,11 @@ class Network:
     def receive(self):
         ready, _, _ = select.select([self.sock], [], [], 0.01)
         if ready:
-            data, addr = self.sock.recvfrom(RECV_BUFFER_SIZE)
-            return json.loads(data.decode('utf-8')), addr
+            try:
+                data, addr = self.sock.recvfrom(RECV_BUFFER_SIZE)
+                return json.loads(data.decode('utf-8')), addr
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                return None, None
         return None, None
 
     def send_ping(self, peer_id):
@@ -172,6 +186,7 @@ def create_shoot_message(my_id, projectile):
     return {
         "type": "shoot",
         "sender_id": my_id,
+        "proj_id": projectile.proj_id,
         "x": projectile.x,
         "y": projectile.y,
         "vx": projectile.vx,
@@ -181,19 +196,31 @@ def create_shoot_message(my_id, projectile):
     }
 
 
-def create_hit_message(my_id, target_id, damage):
-    return {
+def create_hit_message(my_id, target_id, damage, proj_id=None):
+    msg = {
         "type": "hit",
         "sender_id": my_id,
         "target_id": target_id,
         "damage": damage
     }
+    if proj_id is not None:
+        msg["proj_id"] = proj_id
+    return msg
 
 
-def create_respawn_message(my_id):
+def create_kill_message(my_id, killer_id):
+    return {
+        "type": "kill",
+        "sender_id": my_id,
+        "target_id": killer_id,
+    }
+
+
+def create_respawn_message(my_id, health=100):
     return {
         "type": "respawn",
-        "sender_id": my_id
+        "sender_id": my_id,
+        "health": health,
     }
 
 
@@ -237,22 +264,37 @@ def process_message(message, peer_manager, network, chat, projectiles, my_id, my
         if "latency" in message:
             peer_manager.update_peer_latency(sender_id, message["latency"])
     elif msg_type == "chat":
-        chat.add_message(sender_id, message["text"], is_self=(sender_id == my_id), team=message.get("team"))
+        if "text" in message:
+            chat.add_message(sender_id, message["text"], is_self=(sender_id == my_id), team=message.get("team"))
     elif msg_type == "shoot":
         if sender_id != my_id:
-            from .projectile import Projectile
-            proj = Projectile.from_state(message)
-            projectiles.append(proj)
+            try:
+                from .projectile import Projectile
+                proj = Projectile.from_state(message)
+                projectiles.append(proj)
+            except (KeyError, TypeError, ValueError):
+                pass
     elif msg_type == "hit":
-        if message["target_id"] == my_id:
-            from .player import Player
-            result = my_player.take_damage(message["damage"], sender_id)
+        # Despawn matching projectile on ALL peers so it stops rendering
+        # for everyone, not just the shooter.
+        hit_proj_id = message.get("proj_id")
+        if hit_proj_id:
+            for proj in projectiles:
+                if getattr(proj, "proj_id", None) == hit_proj_id:
+                    proj.alive = False
+        if message.get("target_id") == my_id:
+            result = my_player.take_damage(message.get("damage", 0), sender_id)
             if result == "death":
+                # Credit the killer and inform others of respawn state.
+                network.send(create_kill_message(my_id, sender_id), sender_id)
                 network.broadcast(create_respawn_message(my_id), peer_manager.get_broadcast_targets())
             elif result == "hit":
                 pass
+    elif msg_type == "kill":
+        if message.get("target_id") == my_id:
+            my_player.add_kill()
     elif msg_type == "respawn":
-        pass
+        peer_manager.update_peer_health(sender_id, message.get("health", 100), True)
     elif msg_type == "ping":
         network.send(create_pong_message(my_id, message["seq"]), sender_id)
     elif msg_type == "pong":

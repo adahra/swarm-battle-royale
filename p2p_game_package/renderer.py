@@ -21,6 +21,13 @@ class Renderer:
     def clear(self, bg_color=(25, 25, 30)):
         self.screen.fill(bg_color)
 
+    def _panel(self, rect, alpha=170, fill=(20, 20, 30), border=(80, 80, 120), radius=8):
+        surf = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+        surf.fill((*fill, alpha))
+        self.screen.blit(surf, rect.topleft)
+        if border:
+            pygame.draw.rect(self.screen, border, rect, 2, border_radius=radius)
+
     def draw_player(self, x, y, color, size=PLAYER_SIZE, name="", health=MAX_HEALTH, max_health=MAX_HEALTH,
                     team="", alive=True, invulnerable=False, latency=0, is_host=False):
         if not alive:
@@ -63,13 +70,12 @@ class Renderer:
         pygame.draw.circle(self.screen, color, (int(x), int(y)), size // 2)
         pygame.draw.circle(self.screen, (255, 255, 255), (int(x), int(y)), size // 2, 1)
 
-    def draw_leaderboard(self, peers, my_id, my_data, host_id):
+    def draw_leaderboard(self, peers, my_id, my_data, host_id, alpha=170):
         lb_width = 240
         lb_height = 30 + len(peers) * 22 + 40
         lb_x = WIDTH - lb_width - 10
         lb_y = 10
-        pygame.draw.rect(self.screen, (20, 20, 30, 220), (lb_x, lb_y, lb_width, lb_height), border_radius=8)
-        pygame.draw.rect(self.screen, (80, 80, 120), (lb_x, lb_y, lb_width, lb_height), 2, border_radius=8)
+        self._panel(pygame.Rect(lb_x, lb_y, lb_width, lb_height), alpha=alpha)
 
         title = self.font.render("LEADERBOARD", True, (220, 220, 240))
         self.screen.blit(title, (lb_x + lb_width // 2 - title.get_width() // 2, lb_y + 8))
@@ -116,11 +122,10 @@ class Renderer:
         host_text = self.small_font.render(f"{'👑 HOST' if is_host else 'Client'}  Avg Ping: {latency_avg:.0f}ms", True, (150, 150, 180))
         self.screen.blit(host_text, (10, 98))
 
-    def draw_network_info(self, network, peer_manager):
+    def draw_network_info(self, network, peer_manager, alpha=170):
         y = HEIGHT - CHAT_INPUT_HEIGHT - CHAT_HISTORY_HEIGHT - 120
         x = 10
-        pygame.draw.rect(self.screen, (20, 20, 30, 200), (x, y, 200, 110), border_radius=4)
-        pygame.draw.rect(self.screen, (60, 60, 100), (x, y, 200, 110), 1, border_radius=4)
+        self._panel(pygame.Rect(x, y, 200, 110), alpha=alpha, radius=4, border=(60, 60, 100))
 
         info = [
             f"Local: {network.my_ip}:{network.port}",
