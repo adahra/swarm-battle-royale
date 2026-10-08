@@ -18,3 +18,4 @@ dist/
 *.log
 *.sqlite3
 .DS_Store
+res.nan
